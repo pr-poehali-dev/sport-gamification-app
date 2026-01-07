@@ -4,31 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import Icon from '@/components/ui/icon';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { api, AthleteCard as APIAthleteCard, LeaderboardEntry } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 type CardRarity = 'common' | 'rare' | 'epic';
 
-interface AthleteCard {
-  id: number;
-  name: string;
-  rarity: CardRarity;
-  image: string;
-  fact: string;
-  sport: string;
+interface AthleteCard extends APIAthleteCard {
+  image?: string;
 }
-
-const mockAthletes: AthleteCard[] = [
-  { id: 1, name: 'Александр Карелин', rarity: 'epic', image: '🤼', fact: '13-кратный чемпион мира по греко-римской борьбе', sport: 'Борьба' },
-  { id: 2, name: 'Елена Исинбаева', rarity: 'epic', image: '🏃‍♀️', fact: '28 мировых рекордов в прыжках с шестом', sport: 'Лёгкая атлетика' },
-  { id: 3, name: 'Алина Загитова', rarity: 'rare', image: '⛸️', fact: 'Олимпийская чемпионка 2018 года', sport: 'Фигурное катание' },
-  { id: 4, name: 'Александр Овечкин', rarity: 'rare', image: '🏒', fact: 'Более 800 голов в НХЛ', sport: 'Хоккей' },
-  { id: 5, name: 'Мария Шарапова', rarity: 'rare', image: '🎾', fact: '5 титулов Большого шлема', sport: 'Теннис' },
-  { id: 6, name: 'Денис Лебедев', rarity: 'common', image: '🥊', fact: 'Чемпион мира по боксу', sport: 'Бокс' },
-  { id: 7, name: 'Анна Чичерова', rarity: 'common', image: '🏃‍♀️', fact: 'Олимпийская чемпионка в прыжках в высоту', sport: 'Лёгкая атлетика' },
-  { id: 8, name: 'Евгений Плющенко', rarity: 'epic', image: '⛸️', fact: '4-кратный чемпион мира', sport: 'Фигурное катание' },
-];
 
 const rarityChances = {
   1: { common: 80, rare: 15, epic: 5 },
@@ -55,7 +44,26 @@ const rarityGradients = {
   epic: 'from-epic/30 to-epic/5',
 };
 
+const sportEmojis: { [key: string]: string } = {
+  'Борьба': '🤼',
+  'Лёгкая атлетика': '🏃‍♀️',
+  'Фигурное катание': '⛸️',
+  'Хоккей': '🏒',
+  'Теннис': '🎾',
+  'Бокс': '🥊',
+  'Плавание': '🏊',
+  'Гимнастика': '🤸',
+  'Прыжки в воду': '🤿',
+  'Волейбол': '🏐',
+  'Синхронное плавание': '💦',
+  'Лыжные гонки': '⛷️',
+};
+
 export default function Index() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showLoginDialog, setShowLoginDialog] = useState(true);
+  const [phone, setPhone] = useState('');
+  const [userId, setUserId] = useState<number | null>(null);
   const [selectedDifficulty, setSelectedDifficulty] = useState<number | null>(null);
   const [userCards, setUserCards] = useState<AthleteCard[]>([]);
   const [totalPoints, setTotalPoints] = useState(0);
@@ -63,6 +71,9 @@ export default function Index() {
   const [showCardReveal, setShowCardReveal] = useState(false);
   const [revealedCard, setRevealedCard] = useState<AthleteCard | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const { toast } = useToast();
 
   const difficultyLevels = [
     { level: 1, title: 'Новичок', desc: 'Первые шаги в спорте', icon: 'Sprout' },
@@ -79,55 +90,126 @@ export default function Index() {
     '✨ Результаты приходят к тем, кто не останавливается',
   ];
 
-  const globalLeaderboard = [
-    { rank: 1, name: 'Спортсмен_2024', points: 1450, cards: 48 },
-    { rank: 2, name: 'FitnessKing', points: 1320, cards: 44 },
-    { rank: 3, name: 'IronWill', points: 1180, cards: 39 },
-    { rank: 4, name: 'Вы', points: totalPoints, cards: userCards.length },
-    { rank: 5, name: 'HealthyLife', points: 980, cards: 33 },
-  ];
-
-  const getRandomCard = (difficulty: number, isWeeklyBonus: boolean = false): AthleteCard => {
-    if (isWeeklyBonus) {
-      const epicCards = mockAthletes.filter(a => a.rarity === 'epic');
-      return epicCards[Math.floor(Math.random() * epicCards.length)];
+  useEffect(() => {
+    const savedPhone = localStorage.getItem('userPhone');
+    const savedUserId = localStorage.getItem('userId');
+    
+    if (savedPhone && savedUserId) {
+      setPhone(savedPhone);
+      setUserId(parseInt(savedUserId));
+      setIsAuthenticated(true);
+      setShowLoginDialog(false);
+      loadUserData(parseInt(savedUserId));
     }
+  }, []);
 
-    const chances = rarityChances[difficulty as keyof typeof rarityChances];
-    const random = Math.random() * 100;
+  const loadUserData = async (uid: number) => {
+    try {
+      const [stats, collection, leaderboardData] = await Promise.all([
+        api.getUserStats(uid),
+        api.getCollection(uid),
+        api.getLeaderboard(),
+      ]);
 
-    let rarity: CardRarity;
-    if (random < chances.common) {
-      rarity = 'common';
-    } else if (random < chances.common + chances.rare) {
-      rarity = 'rare';
-    } else {
-      rarity = 'epic';
+      setTotalPoints(stats.totalPoints);
+      setWeekProgress({ completed: stats.weekWorkouts, total: 3 });
+      
+      const cardsWithEmojis = collection.map(card => ({
+        ...card,
+        image: sportEmojis[card.sport] || '🏅',
+      }));
+      setUserCards(cardsWithEmojis);
+      setLeaderboard(leaderboardData);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить данные',
+        variant: 'destructive',
+      });
     }
-
-    const cardsOfRarity = mockAthletes.filter(a => a.rarity === rarity);
-    return cardsOfRarity[Math.floor(Math.random() * cardsOfRarity.length)];
   };
 
-  const completeWorkout = () => {
-    if (selectedDifficulty === null) return;
-
-    const isWeeklyBonus = weekProgress.completed === 2;
-    const newCard = getRandomCard(selectedDifficulty, isWeeklyBonus);
-    
-    setRevealedCard(newCard);
-    setShowCardReveal(true);
-    setIsFlipping(true);
-
-    setTimeout(() => {
-      setIsFlipping(false);
-      setUserCards([...userCards, newCard]);
-      setTotalPoints(totalPoints + rarityPoints[newCard.rarity]);
-      setWeekProgress({
-        completed: (weekProgress.completed + 1) % 3,
-        total: 3
+  const handleLogin = async () => {
+    if (!phone.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите номер телефона',
+        variant: 'destructive',
       });
-    }, 600);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const user = await api.login(phone);
+      setUserId(user.userId);
+      setTotalPoints(user.totalPoints);
+      setWeekProgress({ completed: user.weekWorkouts, total: 3 });
+      
+      localStorage.setItem('userPhone', phone);
+      localStorage.setItem('userId', user.userId.toString());
+      
+      setIsAuthenticated(true);
+      setShowLoginDialog(false);
+      
+      await loadUserData(user.userId);
+      
+      toast({
+        title: 'Добро пожаловать!',
+        description: 'Вы успешно вошли в систему',
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка входа',
+        description: 'Попробуйте ещё раз',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const completeWorkout = async () => {
+    if (selectedDifficulty === null || userId === null) return;
+
+    setIsLoading(true);
+    try {
+      const result = await api.completeWorkout(userId, selectedDifficulty);
+      
+      const cardWithEmoji: AthleteCard = {
+        ...result.card,
+        image: sportEmojis[result.card.sport] || '🏅',
+      };
+      
+      setRevealedCard(cardWithEmoji);
+      setShowCardReveal(true);
+      setIsFlipping(true);
+
+      setTimeout(() => {
+        setIsFlipping(false);
+        setUserCards([cardWithEmoji, ...userCards]);
+        setTotalPoints(totalPoints + result.points);
+        setWeekProgress({
+          completed: result.weekWorkouts,
+          total: 3
+        });
+        
+        if (result.wasWeeklyBonus) {
+          toast({
+            title: '🎉 Недельный бонус!',
+            description: 'Вы получили эпическую карточку за 3 тренировки!',
+          });
+        }
+      }, 600);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось завершить тренировку',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const rarityStats = {
@@ -135,6 +217,42 @@ export default function Index() {
     rare: userCards.filter(c => c.rarity === 'rare').length,
     epic: userCards.filter(c => c.rarity === 'epic').length,
   };
+
+  if (!isAuthenticated) {
+    return (
+      <Dialog open={showLoginDialog} onOpenChange={setShowLoginDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-heading">Добро пожаловать в SportCards!</DialogTitle>
+            <DialogDescription>
+              Введите номер телефона для входа или регистрации
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div>
+              <Label htmlFor="phone">Номер телефона</Label>
+              <Input
+                id="phone"
+                type="tel"
+                placeholder="+7 (999) 123-45-67"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+              />
+            </div>
+            <Button 
+              onClick={handleLogin} 
+              disabled={isLoading}
+              className="w-full"
+              size="lg"
+            >
+              {isLoading ? 'Вход...' : 'Войти'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-background/80">
@@ -225,11 +343,11 @@ export default function Index() {
               <Button
                 size="lg"
                 className="text-xl px-12 py-6 font-heading font-bold"
-                disabled={selectedDifficulty === null}
+                disabled={selectedDifficulty === null || isLoading}
                 onClick={completeWorkout}
               >
                 <Icon name="Play" size={24} className="mr-3" />
-                Начать тренировку
+                {isLoading ? 'Тренировка...' : 'Начать тренировку'}
               </Button>
             </div>
 
@@ -295,7 +413,11 @@ export default function Index() {
                     <div className={`h-2 bg-gradient-to-r ${rarityGradients[card.rarity]}`} />
                     <CardContent className="pt-6">
                       <div className="text-center mb-4">
-                        <div className="text-6xl mb-3">{card.image}</div>
+                        {card.imageUrl ? (
+                          <img src={card.imageUrl} alt={card.name} className="w-full h-48 object-cover rounded-lg mb-3" />
+                        ) : (
+                          <div className="text-6xl mb-3">{card.image}</div>
+                        )}
                         <Badge className={`mb-2 ${rarityColors[card.rarity]}`}>
                           {card.rarity.toUpperCase()}
                         </Badge>
@@ -377,11 +499,11 @@ export default function Index() {
                   Глобальный рейтинг
                 </h3>
                 <div className="space-y-3">
-                  {globalLeaderboard.map((player) => (
+                  {leaderboard.map((player) => (
                     <div
                       key={player.rank}
                       className={`flex items-center gap-4 p-4 rounded-lg transition-all ${
-                        player.name === 'Вы'
+                        player.userId === userId
                           ? 'bg-primary/10 border-2 border-primary'
                           : 'bg-muted/30'
                       }`}
@@ -390,11 +512,13 @@ export default function Index() {
                         <span className="text-2xl font-heading font-bold">#{player.rank}</span>
                       </div>
                       <Avatar className="w-12 h-12">
-                        <AvatarFallback>{player.name[0]}</AvatarFallback>
+                        <AvatarFallback>{player.phone[0]}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
-                        <p className="font-bold text-lg">{player.name}</p>
-                        <p className="text-sm text-muted-foreground">{player.cards} карточек</p>
+                        <p className="font-bold text-lg">
+                          {player.userId === userId ? 'Вы' : `****${player.phone}`}
+                        </p>
+                        <p className="text-sm text-muted-foreground">{player.cardCount} карточек</p>
                       </div>
                       <div className="text-right">
                         <p className="text-2xl font-heading font-bold text-secondary">{player.points}</p>
@@ -427,7 +551,11 @@ export default function Index() {
                       {revealedCard.rarity.toUpperCase()}
                     </Badge>
                     <div className="text-center mb-6">
-                      <div className="text-8xl mb-4">{revealedCard.image}</div>
+                      {revealedCard.imageUrl ? (
+                        <img src={revealedCard.imageUrl} alt={revealedCard.name} className="w-full h-64 object-cover rounded-lg mb-4" />
+                      ) : (
+                        <div className="text-8xl mb-4">{revealedCard.image}</div>
+                      )}
                       <h3 className="text-3xl font-heading font-bold mb-2">{revealedCard.name}</h3>
                       <p className="text-muted-foreground mb-4">{revealedCard.sport}</p>
                       <p className="text-lg">{revealedCard.fact}</p>

@@ -1,0 +1,44 @@
+{
+  "tests": [
+    {
+      "name": "Complete workout",
+      "method": "POST",
+      "path": "/?action=complete-workout",
+      "body": {
+        "userId": 1,
+        "difficulty": 2
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "card": {
+          "id": "number",
+          "name": "string",
+          "rarity": "string"
+        },
+        "points": "number",
+        "weekWorkouts": "number"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get user collection",
+      "method": "GET",
+      "path": "/?action=collection&userId=1",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "cards": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get leaderboard",
+      "method": "GET",
+      "path": "/?action=leaderboard",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "leaderboard": "array"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

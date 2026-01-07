@@ -1,0 +1,31 @@
+{
+  "tests": [
+    {
+      "name": "Login with phone number",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "phone": "+79991234567"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "userId": "number",
+        "phone": "string",
+        "totalPoints": "number",
+        "weekWorkouts": "number"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login without phone",
+      "method": "POST",
+      "path": "/",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {
+        "error": "Phone number is required"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
